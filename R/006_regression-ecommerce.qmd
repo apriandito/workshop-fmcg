@@ -1,0 +1,205 @@
+---
+title: "Regression - Ecommerce"
+author: "Muhammad Apriandito"
+format: html
+editor: visual
+---
+
+### Setup
+
+```{r}
+# Set Parameter
+set.seed(123)
+options(scipen = 10000)
+```
+
+### Load Packages
+
+```{r}
+# Load Packages
+library(tidyverse)
+library(tidymodels)
+library(janitor)
+library(skimr)
+library(nnet)
+```
+
+### Load Data
+
+Source of data: <https://www.kaggle.com/datasets/kukuroo3/ecommerce-shipping-data-competition-form>
+
+```{r}
+# Load Data
+df <- read_csv("data/e-commerce.csv")
+```
+
+```{r}
+# Show Data
+df
+```
+
+```{r}
+# Show Sample Value for Each Variables
+glimpse(df)
+```
+
+```{r}
+# Show Data Summary
+skim(df)
+```
+
+### Data Preprocessing
+
+```{r}
+# Data Preprocessing
+df_fix <- df %>%
+  clean_names() %>%
+  select(-id) %>%
+  rename(reached_on_time = reached_on_time_y_n) %>%
+  mutate(reached_on_time =  as_factor(reached_on_time)) %>%
+  mutate_if(is.character, as_factor)
+```
+
+```{r}
+# Show Processed Data
+glimpse(df_fix)
+```
+
+### Data Exploration
+
+```{r}
+# Show Customer Rating Distribution
+df_fix %>% 
+  group_by(customer_rating) %>%
+  count() %>%
+  ggplot(aes(x = customer_rating, y = n)) +
+  geom_col(fill = "#00c0c5") +
+  theme_minimal()
+```
+
+```{r}
+# Show Customer Rating Distribution Based on Gender
+df_fix %>% 
+  group_by(customer_rating, gender) %>%
+  count() %>%
+  ggplot(aes(x = customer_rating, y = n, fill = gender)) +
+  geom_col(position = "dodge") +
+  theme_minimal()
+```
+
+### Construct the Regression Model
+
+#### Split Data
+
+```{r}
+# Split Data into 70% Training Data and 30% Testing Data
+df_split <- initial_split(df_fix, prop = 0.7)
+```
+
+```{r}
+# Show Data Proportion
+df_split
+```
+
+#### Define Data Processing Flow
+
+```{r}
+# Define Data Processing Flow
+df_recipe <- training(df_split) %>%
+  recipe(customer_rating ~ cost_of_the_product + product_importance + gender + discount_offered + customer_care_calls + prior_purchases + reached_on_time) %>%
+  prep()
+df_recipe
+```
+
+#### Modeling
+
+Check available models at <https://www.tidymodels.org/find/parsnip/>
+
+##### Linear Regression
+
+```{r}
+# Define the Regression Algorithm - Linear Regression
+lr <- linear_reg() %>%
+  set_engine("lm")
+```
+
+```{r}
+# Create Model Workflow 
+workflow_lr <- workflow() %>%
+  add_model(lr) %>%
+  add_recipe(df_recipe)
+```
+
+```{r}
+# Train Model
+model_lr <- fit(workflow_lr, training(df_split))
+model_lr
+```
+
+##### Modeling (Neural Network)
+
+```{r}
+# Define the Regression Algorithm - Neural Network
+nn <- mlp() %>% 
+  set_engine("nnet") %>% 
+  set_mode("regression")
+```
+
+```{r}
+# Create Model Workflow 
+workflow_nn <- workflow() %>%
+  add_model(nn) %>%
+  add_recipe(df_recipe)
+```
+
+```{r}
+# Train Model
+model_nn <- fit(workflow_nn, training(df_split))
+model_nn
+```
+
+#### Model Evaluation
+
+```{r}
+# Define Metrics to Evaluate the Model
+multi_metrics <- metric_set(rmse, mape, rsq)
+```
+
+```{r}
+# Measure Model Performance
+model_lr %>%
+  predict(testing(df_split)) %>%
+  bind_cols(testing(df_split)) %>%
+  multi_metrics(truth = customer_rating, estimate = .pred)
+```
+
+```{r}
+# Measure Model Performance
+model_nn %>%
+  predict(testing(df_split)) %>%
+  bind_cols(testing(df_split)) %>%
+  multi_metrics(truth = customer_rating, estimate = .pred)
+```
+
+#### Make Prediction
+
+```{r}
+# Create a New Data
+df_new <- tibble(
+  customer_rating = 5,
+  cost_of_the_product = 280,
+  product_importance = "high",
+  gender = "F",
+  discount_offered = 20,
+  customer_care_calls = 5,
+  prior_purchases = 2,
+  reached_on_time = factor(0)
+) 
+```
+
+```{r}
+# Predict the New Data
+model_nn %>%
+  predict(df_new) %>%
+  round()
+```
